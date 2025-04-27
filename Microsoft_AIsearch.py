@@ -1,330 +1,265 @@
+# Class:        CS 7375/W02
+
+# Term:         Spring 2025
+
+# Instructors:  Dr. Rasael Mahmud, Dr. Coskun Cetinkaya
+
+# Project:      Personalizing and Optimizing Learning Experiences using AI
+
 import requests
 import nltk
 from nltk.tokenize.punkt import PunktSentenceTokenizer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import time
 
-# --- NLTK: Download punkt tokenizer if not available ---
-# The 'punkt' tokenizer is needed by NLTK to split text into sentences.
-# This block checks if it's already downloaded and downloads it if necessary.
+# ------------------------------------------
+# This program helps students find relevant learning resources on Microsoft Learn.
+# It grabs course data then processes it with NLP tools, and recommends content based on user input.
+# After processing it creates a course program compose of five courses, a main course that is the closes
+# one related to the student's query and four more recommended courses that are similar to the core course.
+# ------------------------------------------
+
+# Ensure the sentence tokenizer from NLTK is ready to use and downloads it if missing
 try:
     nltk.data.find("tokenizers/punkt")
 except LookupError:
-    print("⬇️ Downloading NLTK 'punkt' tokenizer...")
+    print("NLTK punkt tokenizer not found. Downloading...")
     nltk.download("punkt")
-    print("✅ NLTK 'punkt' downloaded.")
+    print("NLTK punkt tokenizer downloaded successfully.")
 
-# --- AI/NLP Helpers ---
+# TEXT PROCESSING HELPERS
 
 def summarize_text(text, num_sentences=6):
-    """
-    Summarizes the input text to approximately paragraph length (default 6 sentences)
-    using NLTK's Punkt sentence tokenizer.
-
-    Args:
-        text (str): The text to summarize.
-        num_sentences (int): The target number of sentences for the summary.
-
-    Returns:
-        str: The summarized text, or a fallback message/text if summarization fails or input is invalid.
-    """
-    # Basic input validation
+    # Shortens long text into a brief summary using the first few meaningful sentences
+    # Converts sentences into a cohesive paragraph
     if not text or not isinstance(text, str):
+        # If the input isn't valid text it returns a default message
         return "No description available."
     try:
         # Initialize the sentence tokenizer
         tokenizer = PunktSentenceTokenizer()
-        # Basic text cleaning: remove leading/trailing whitespace and replace newlines/carriage returns with spaces
+        # Get rid of unnecessary whitespace and tidy up the text
         clean_text = text.strip().replace("\n", " ").replace("\r", " ")
-        # Tokenize the cleaned text into sentences
+        # Tokenize the text into sentences
         sentences = tokenizer.tokenize(clean_text)
-        # Filter out very short sentences that are likely noise or formatting remnants
-        sentences = [s for s in sentences if len(s.split()) > 3] # Keep sentences with more than 3 words
-        # Join the first 'num_sentences' sentences, or all sentences if the text is shorter
-        summary = " ".join(sentences[:num_sentences]) if len(sentences) > num_sentences else " ".join(sentences)
-        # Return the summary, ensuring it's not empty or otherwise return a default message
-        return summary if summary else "No description available."
+        # Skip very short sentences that don't add to the context
+        sentences = [s for s in sentences if len(s.split()) > 3] # Keep sentence with more than 3 words
+        # Return the summary and if something goes wrong during summarization, show a shortened version of the original
+        return " ".join(sentences[:num_sentences]) if sentences else "No description available."
     except Exception as e:
-        # Handle potential errors during tokenization or processing
-        print(f" Error summarizing text: {e}")
-        # Fallback: return the beginning of the original text if summarization fails
+        # Print error message in case summarization fails
+        print(f" Error during text summarization: {e}")
+        # Returns the original text if the summarization were to fail
         return text[:500] + "..." if len(text) > 500 else text
 
+# SEMANTIC FILTERING
+
 def semantic_filter(query, items, threshold=0.05):
-    """
-    Filters a list of items based on their semantic similarity to a given query,
-    using TF-IDF and cosine similarity.
-
-    Args:
-        query (str): The search query text.
-        items (list): A list of dictionaries, where each dictionary represents an item
-                      and should have 'title' and 'description' keys.
-        threshold (float): The minimum cosine similarity score for an item to be included.
-
-    Returns:
-        list: A list of items sorted by similarity score (descending) that meet the threshold.
-              Returns fallback keyword matches if TF-IDF fails.
-    """
-    # Handle empty input list
+    # Uses semantic similarity to keep content that's closely related to what the user's query
     if not items:
         return []
-    # Prepare documents for TF-IDF and combine title and description for each item
-    documents = [f"{item.get('title', '')} {item.get('description', '')}" for item in items]
-    # Create the corpus including the query at the beginning
-    corpus = [query] + documents
+
+    # Put together title and description so we have more context for each item
+    texts = [f"{i.get('title', '')} {i.get('description', '')}" for i in items]
+    # The query goes first in the list so we can compare everything to it
+    corpus = [query] + texts
     try:
-        # Initialize and fit the TF-IDF vectorizer
-        vectorizer = TfidfVectorizer().fit_transform(corpus)
-        # Calculate cosine similarity between the query vector (first row) and all item vectors
-        similarities = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()
-
-        # Pair items with their calculated similarity scores
-        scored_items = list(zip(items, similarities))
-        # Filter items based on the similarity threshold
-        filtered_items = [item for item, score in scored_items if score > threshold]
-
-        # Sort the filtered items by their similarity score in descending order
-        # This re-finds the score for sorting, which is slightly inefficient but works.
-        # A more efficient way would be to sort scored_items before extracting just the items.
-        top_matches = sorted(
-            filtered_items,
-            key=lambda item: next(score for i, score in scored_items if i == item),
-            reverse=True
-        )
-
-        print(f"🧠 Found {len(top_matches)} items above similarity threshold {threshold}.")
-        return top_matches
-
+        # Tries to calculate similarity scores using TF-IDF and cosine similarity
+        vectorizer = TfidfVectorizer()
+        # Calculates cosine similarity
+        vectors = vectorizer.fit_transform(corpus)
+        scores = cosine_similarity(vectors[0:1], vectors[1:]).flatten()
+        # Keeps items that are similar enough, and sort them by how closely they match
+        # Filter items based on threshold
+        results = [(item, score) for item, score in zip(items, scores) if score > threshold]
+        # Sorted filtered items by their score
+        sorted_items = sorted(results, key=lambda x: x[1], reverse=True)
+        # Display how many items passed the filter
+        print(f"Found {len(sorted_items)} relevant items (threshold: {threshold}).")
+        # Print the top 10 items with their scores
+        print("\n--- Top Relevant Items with Relevancy Score, 0 for no relevancy to 1 being identical shown in decimal ---")
+        for item, score in sorted_items[:10]:
+            # Format the score to a few decimal places and print program segment with core course title
+            print(f"  Score: {score:.4f} - Program Segment: {item.get('title', 'N/A')}")
+        print("-" * 50 + "\n")
+        # Items without scares are sorted by relevance
+        return [item for item, _ in sorted_items]
+    
     except Exception as e:
-        # Handle potential errors during vectorization or similarity calculation
-        print(f" Error during semantic filtering: {e}")
-        # Fallback mechanism to perform simple case-insensitive keyword matching
-        print(" Falling back to simple keyword matching.")
-        query_lower = query.lower()
-        fallback_matches = [
-            item for item in items
-            if query_lower in item.get('title', '').lower() or query_lower in item.get('description', '').lower()
+        # Fall back to a simple keyword match if the calculation fails
+        print(f" TF-IDF similarity calculation failed: {e}. Using simple keyword matching.")
+        q_lower = query.lower()
+        return [
+            i for i in items
+            if q_lower in i.get('title', '').lower() or q_lower in i.get('description', '').lower()
         ]
-        return fallback_matches
 
-def recommend_similar_courses(selected_course, all_courses, top_n=5):
-    """
-    Recommends courses from a list that are semantically similar to a selected course.
-
-    Args:
-        selected_course (dict): The course to find recommendations for.
-        all_courses (list): The pool of courses to recommend from.
-        top_n (int): The maximum number of recommendations to return.
-
-    Returns:
-        list: A list of recommended course dictionaries, sorted by similarity.
-    """
-    # Handle invalid inputs
-    if not selected_course or not all_courses:
+def recommend_similar_courses(base_course, course_list, top_n=5):
+    # Recommends courses that are similar in content to a core course
+    if not base_course or not course_list:
         return []
 
-    # Create the base text from the selected course's title and description
-    base_text = f"{selected_course.get('title', '')} {selected_course.get('description', '')}"
-    # Create a list of candidate courses, excluding the selected course itself identified by URL
-    candidates = [
-        c for c in all_courses
-        if isinstance(c, dict) and c.get('url') != selected_course.get('url')
-    ]
-
-    # If no candidates are left return an empty list
-    if not candidates:
+    # Build a sentence description for each course so we can compare them
+    reference_text = f"{base_course.get('title', '')} {base_course.get('description', '')}"
+    # Skip comparing the course to itself
+    others = [c for c in course_list if c.get('url') != base_course.get('url')]
+    if not others:
         return []
-
-    # Create the corpus with the base text followed by the text of candidate courses
-    corpus = [base_text] + [f"{c.get('title', '')} {c.get('description', '')}" for c in candidates]
-
+    # Prepares text for comparison starting with the base course description, 
+    # followed by the combined titles and descriptions from recommended courses
+    corpus = [reference_text] + [f"{c.get('title', '')} {c.get('description', '')}" for c in others]
     try:
-        # Vectorize the corpus using TF-IDF
-        vectorizer = TfidfVectorizer().fit_transform(corpus)
-        # Calculate cosine similarity between the base text vector and all candidate vectors
-        similarity_scores = cosine_similarity(vectorizer[0:1], vectorizer[1:]).flatten()
-        # Pair candidates with their similarity scores
-        scored_candidates = list(zip(candidates, similarity_scores))
-
-        # Filter out candidates with very low similarity < 0.01 and sort by score
-        top_recommendations = sorted(
-            [cand for cand in scored_candidates if cand[1] > 0.01], # Filter low scores
-            key=lambda x: x[1], # Sort by score
-            reverse=True # Highest score first
-        )[:top_n] # Take only the top N recommendations
-
-        # Return only the course dictionaries from the sorted list
-        return [rec[0] for rec in top_recommendations]
-
+        # TF-IDF converts text into numerical vectors assigned by word importance
+        vectorizer = TfidfVectorizer()
+        # Vectorizer analyzes vocabulary and word frequncy and creates a vector for ea.
+        vectors = vectorizer.fit_transform(corpus)
+        # Calculate similarity scores, vectors[0:1] being the base course 
+        # and vectors[1:] the recommended courses  
+        scores = cosine_similarity(vectors[0:1], vectors[1:]).flatten()
+        # Only keep the top matches and excludes those with a low similarity
+        ranked = sorted(
+            [(c, s) for c, s in zip(others, scores) if s > 0.01],
+            key=lambda x: x[1], reverse=True
+        )[:top_n]
+        return [course for course, _ in ranked]
     except Exception as e:
-        # Handle potential errors during recommendation process
-        print(f" Error recommending similar courses: {e}")
+        # If anything fails during comparison, return an empty list to avoid crashing
+        print(f" Failed to generate course recommendations: {e}")
         return []
+
+# API LOOKUP
 
 def search_microsoft_learn_resources(query):
-    """
-    Fetches and processes learning resources, modules and learning paths
-    from the Microsoft Learn Catalog API based on a query.
-
-    Args:
-        query (str): The search term.
-
-    Returns:
-        A list of resource found and filtered by semantic similarity.
-    """
-    # API endpoint
+    # Looks up Microsoft Learn API and returns content related to the user's search query
     base_url = "https://learn.microsoft.com/api/catalog"
-    all_resources = []
-    fetched_items_count = 0
+    results = []
 
-    print("🔍 Searching Microsoft Learn...")
+    print("Searching Microsoft Learn...")
     try:
-        # Make the GET request to the API
-        response = requests.get(base_url, timeout=20) # Added timeout
-        response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
-        # Parse the JSON response
-        catalog = response.json()
-        # Combine items from "modules" and "learningPaths" sections of the catalog
-        items = catalog.get("modules", []) + catalog.get("learningPaths", [])
-        fetched_items_count = len(items)
-        print(f"📚 Fetched {fetched_items_count} total items from MS Learn catalog.")
+        # Pulls data from the Microsoft Learn API
+        response = requests.get(base_url, timeout=20)
+        # Check if the request was successful
+        response.raise_for_status()
+        # Parse JSON Data
+        data = response.json()
+        # Clean up and normalize the entries from both modules and learning paths
+        entries = data.get("modules", []) + data.get("learningPaths", [])
+        print(f"Found {len(entries)} total items from MS Learn catalog.")
 
         # Process each item fetched from the API
-        for item in items:
-            # Basic validation to ensure item is a dictionary
-            if not isinstance(item, dict):
+        for entry in entries:
+            # Ignore entries without a title or link
+            if not isinstance(entry, dict):
                 continue
 
-            # Extract relevant fields, providing defaults if keys are missing
-            title = item.get("title", "")
-            description = item.get("summary", "") # Description field
-            url = item.get("url", "")
-            locale = item.get("locale", "en-us") # Default locale
+            # Extracts relevant fields
+            title = entry.get("title", "")
+            summary = entry.get("summary", "")
+            url = entry.get("url", "")
+            locale = entry.get("locale", "en-us")
 
-            # Skip items missing essential information (title or URL)
+            # Skips missing info
             if not title or not url:
                 continue
 
-            # Construct the absolute URL if the provided URL is relative
-            if url.startswith('/'):
-                full_url = f"https://learn.microsoft.com{url}"
+            # Fix relative links by making them full URLs
+            if url.startswith("/"):
+                absolute_url = f"https://learn.microsoft.com{url}"
             elif url.startswith("http"):
-                 full_url = url # Already absolute
+                absolute_url = url
             else:
-                 # Attempt to construct URL assuming it's relative to locale
-                 full_url = f"https://learn.microsoft.com/{locale}/{url.lstrip('/')}"
+                absolute_url = f"https://learn.microsoft.com/{locale}/{url.lstrip('/')}"
 
-            # Collect the processed and standardized resource to the list
-            all_resources.append({
+            # Fills out relevant fields from extraction
+            results.append({
                 "title": title,
-                "description": description if description else "No description provided.", # Ensure description is not None
-                "url": full_url,
-                "source": "Microsoft Learn" # Add source identifier
+                "description": summary or "No description provided.",
+                "url": absolute_url,
+                "source": "Microsoft Learn"
             })
 
-    # Handle potential errors during the API request
     except requests.exceptions.RequestException as e:
-        print(f" Error fetching Microsoft Learn content: {e}")
+        # If there's a problem communicating to the API, print an error and stop
+        print(f" Error fetching data from Microsoft Learn API: {e}")
         return []
-    # Handle potential errors during JSON parsing or data extraction
     except (ValueError, KeyError, TypeError) as e:
-        print(f" Error parsing Microsoft Learn catalog: {e}")
+        # Don't proceed if the data format is broken 
+        print(f" Error processing the catalog data: {e}")
         return []
-    # Handle any other unexpected errors
     except Exception as e:
-        print(f" An unexpected error occurred during fetching: {e}")
+        print(f" An unexpected error occurred: {e}")
         return []
 
-    # If no resources could be processed, return empty list
-    if not all_resources:
-        print("No resources could be processed from Microsoft Learn.")
+    if not results:
+        print(" No processable entries found in the catalog data.")
         return []
 
-    # Apply semantic filtering to the fetched resources based on the user's query
-    print(f" Running semantic search for '{query}' on {len(all_resources)} processed resources...")
-    filtered_results = semantic_filter(query, all_resources)
+    # If everything looks good, filter the results based on how relevant they are to the query
+    print(f"Ranking results for relevance to '{query}'...")
+    return semantic_filter(query, results)
 
-    print(f" Found {len(filtered_results)} potentially relevant items after semantic filtering.")
-    return filtered_results
-
-# --- Main Execution Block ---
-# This code runs only when the script is executed directly and not imported as a module
+# MAIN EXECUTION
 if __name__ == "__main__":
-    # Get the search topic from the user
-    query = input("🔍 Enter a topic to search in Microsoft Learn: ")
+    # Ask the user what topic they're interested in
+    query = input("Enter a topic to search in Microsoft Learn: ")
     # Perform the search and filtering
     results = search_microsoft_learn_resources(query)
 
-    # Handle case where no results are found
+    # Announce if no relevant data was found
     if not results:
-        print("\n No matching courses found for your query after filtering.")
+        print("\nNo relevant resources were found for your query.")
     else:
-        # --- Pagination Logic ---
-        index = 0 # Current starting index for displaying results
-        page_size = 10 # Number of results to display per page
-        more_results = True # Flag to control the pagination loop
+        # Paginate so it's easier to read and navigate
+        index = 0
+        page_size = 10
+        # Loop that controls pagination
+        while index < len(results):
+            # Get and print initial page of results
+            current_batch = results[index:index + page_size]
+            print(f"\n--- Displaying Microsoft Learn Program Segments {index + 1} - {index + len(current_batch)} of {len(results)} ---")
 
-        # Loop to display results in pages
-        while more_results and index < len(results):
-            # Get the current batch (page) of results
-            batch = results[index:index + page_size]
-            print(f"\n--- Displaying Microsoft Learn Program Segments {index + 1} to {index + len(batch)} ---")
-
-            # Use the full list of filtered results as the pool for recommendations
-            recommendation_pool = results
-
-            # Process and display each resource in the current batch
-            for i, initial_resource in enumerate(batch, index + 1):
+            # Process and print ea. course in the page
+            for i, resource in enumerate(current_batch, index + 1):
                 print(f"\n--- Program Segment {i} ---")
-                # Find courses similar to the current 'initial_resource'
+                # Add up the descriptions of the main and related content to get a better summary
                 print("  Analysing related courses...")
-                recs = recommend_similar_courses(initial_resource, recommendation_pool, top_n=4) # Get up to 4 recommendations
-
-                # --- Generate Program Overview ---
+                recommendations = recommend_similar_courses(resource, results, top_n=4)
                 # Combine the description of the initial resource and its recommendations
-                combined_text = initial_resource.get('description', '')
-                if recs:
-                    # Add descriptions of recommended courses, ensuring they exist
-                    valid_rec_descriptions = [rec.get('description', '') for rec in recs if rec.get('description')]
-                    if valid_rec_descriptions:
-                         combined_text += " " + " ".join(valid_rec_descriptions)
+                combined_text = resource.get('description', '')
+                # Add descriptions of recommended courses
+                for r in recommendations:
+                    combined_text += " " + r.get('description', '')
+                # Put together a combined summary of all courses into a paragraph
+                summary = summarize_text(combined_text.strip())
 
+                # Print a summary that combines the main resource with its suggestions
+                print("\n*** Course Program Overview ***")
+                print(f"   {summary}")
+                print("-" * 20)
 
-                # Summarize the combined text into a paragraph
-                program_summary = summarize_text(combined_text.strip(), num_sentences=6)
-
-                # Print the generated overview
-                print(f"\n*** Course Program Overview ***")
-                print(f"   {program_summary}") # Indented summary
-                print("-" * 20) # Separator
-
-                # --- List Included Resources ---
-                print("  Included Resources:")
-                # Print details of the core initial course
-                print(f"    - Core Course: {initial_resource.get('title', 'N/A')}\n      Description: {initial_resource.get('description', 'No description provided.')}\n      URL: {initial_resource.get('url', 'N/A')}")
-                # Print details of the related recommended courses
-                if recs:
-                    print(f"    - Related Courses ({len(recs)}):")
-                    for rec_idx, rec in enumerate(recs, 1):
-                        print(f"      {rec_idx}. {rec.get('title', 'N/A')}\n         Description: {rec.get('description', 'No description provided.')}\n         URL: {rec.get('url', 'N/A')}")
+                # Print details of the main resource and any similar ones
+                print("  Included Materials:")
+                print(f"      Core Course: {resource.get('title')}")
+                print(f"      Description: {resource.get('description')}")
+                print(f"      URL: {resource.get('url')}\n")
+                if recommendations:
+                    print("    Related Courses:")
+                    for idx, r in enumerate(recommendations, 1):
+                        print(f"      {idx}. {r.get('title')}")
+                        print(f"         Description: {r.get('description')}")
+                        print(f"         URL: {r.get('url')}")
                 else:
-                    # Message if no recommendations were found
-                    print("    - No additional related courses found for this segment.")
+                    print("    No related courses were found.")
 
-                print("=" * 50) # Separator between program segments
+                print("=" * 50)
 
-            # Move to the next page index
             index += page_size
-            # Check if there are more results to display
+            # Ask the user if they want to continue browsing results
             if index < len(results):
-                # Ask the user if they want to see the next page
-                user_input = input("\nWould you like to see the next 10 results? (Y/N): ").strip().lower()
-                # Stop if the user doesn't enter 'y'
-                if user_input != 'y':
-                    more_results = False
-                    print("Exiting program.")
+                cont = input("\nShow more results? (y/n): ").strip().lower()
+                # Stop the program if the user doesn't enter 'y'
+                if cont != 'y':
+                    print("Exiting.")
+                    break
             else:
-                # All results have been shown
-                print("All results have been displayed.")
-                # No need to set more_results = False, the loop condition (index < len(results)) handles this
+                print("\n--- End of results ---")
